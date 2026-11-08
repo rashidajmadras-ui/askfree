@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AskFree</title>
+<style>
+:root{--bg:#f6f4ec;--card:#fcfbf7;--ink:#1f2a24;--muted:#69746d;--green:#0f6b4f;--soft:#e6efe9;--line:#e1ddcd}
+@media (prefers-color-scheme:dark){:root{--bg:#141a17;--card:#1b231f;--ink:#e8efe9;--muted:#9aa89f;--green:#4cc79b;--soft:#22322a;--line:#2e3b34}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:560px;margin:0 auto;padding:16px 16px 90px}
+h1{font-size:22px;margin:4px 0 2px}h1 span{color:var(--green)}
+.sub{color:var(--muted);font-size:14px;margin:0 0 14px}
+.hero{background:linear-gradient(135deg,#0f6b4f,#1c9a73);color:#fff;border-radius:20px;padding:20px 16px;margin-bottom:14px}
+.hero h2{margin:0 0 4px;font-size:21px;line-height:1.25}.hero p{margin:0 0 14px;opacity:.92;font-size:14px}
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.step{background:rgba(255,255,255,.18);border-radius:12px;padding:10px 6px;font-size:12px;text-align:center;line-height:1.3}
+.step em{display:block;font-size:24px;font-style:normal;margin-bottom:2px}
+.card{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--c,var(--green));border-radius:16px;padding:14px;margin-bottom:12px;box-shadow:0 2px 10px rgba(0,0,0,.06)}
+.tag{display:inline-block;background:var(--soft);color:var(--green);border-radius:99px;padding:2px 10px;font-size:12px;font-weight:600;margin-right:6px}
+.anon{color:var(--muted);font-size:12px}.q{font-weight:600;margin:8px 0}
+.box{background:var(--soft);border-left:4px solid var(--green);border-radius:12px;padding:10px 12px;margin:8px 0;font-size:15px}
+.box b{display:block;font-size:12px;color:var(--green);margin-bottom:2px}
+.box.mentor{border-left-color:#c8891b}
+.box.wait{background:transparent;border:1.5px dashed var(--line);color:var(--muted)}
+button,select,textarea,input{font:inherit;color:var(--ink)}
+.btn{background:var(--green);color:#fff;border:0;border-radius:99px;padding:10px 18px;font-weight:600;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--green);border:1px solid var(--green);padding:6px 14px;font-size:14px}
+.btn.big{width:100%;padding:14px;font-size:16px;margin-top:8px}
+.btn:disabled{opacity:.5}
+textarea,select,input{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px;margin:6px 0}
+label{display:block;font-size:13px;font-weight:600;margin-top:10px}
+.lock{background:var(--soft);border-radius:12px;padding:10px;font-size:13px}
+.h2{font-size:18px;font-weight:700;margin:2px 0 10px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.bar{height:10px;border-radius:99px;background:var(--soft);overflow:hidden;margin:4px 0 10px}.bar i{display:block;height:100%;background:var(--green)}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px;text-align:center;font-size:12px;color:var(--muted)}
+.stat b{display:block;font-size:28px;color:var(--green)}
+.chip{border:1px solid var(--line);background:transparent;border-radius:99px;padding:4px 12px;font-size:13px;cursor:pointer}.chip.on{background:var(--green);color:#fff;border-color:var(--green)}
+.err{background:#fde8e0;color:#8a2c0d;border-radius:12px;padding:10px;font-size:13px;margin-bottom:12px}
+nav{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);display:flex;justify-content:center;padding-bottom:env(safe-area-inset-bottom,0px)}
+nav div{display:flex;width:100%;max-width:560px}
+nav button{flex:1;background:none;border:0;padding:10px 4px;font-size:12px;color:var(--muted);cursor:pointer}
+nav button span{display:block;font-size:20px}nav button.on{color:var(--green);font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Ask<span>Free</span></h1>
+  <p class="sub">Anonymous doubt-solving for first-year students</p>
+  <div id="msg"></div><div id="hero"></div><div id="view"></div>
+</div>
+<nav><div id="nav"></div></nav>
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
+import {getAuth,signInAnonymously,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js";
+import {getFirestore,collection,addDoc,onSnapshot,query,orderBy,doc,updateDoc,setDoc,increment,serverTimestamp} from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
+
+const firebaseConfig={apiKey:"AIzaSyDuPMOS2NZDlLl5FE9OlFa-RA-kXD49y98",authDomain:"askfree-e322d.firebaseapp.com",projectId:"askfree-e322d",storageBucket:"askfree-e322d.firebasestorage.app",messagingSenderId:"525415218168",appId:"1:525415218168:web:76a608780048507231b40d"};
+const app=initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app);
+
+const TAGS=["Maths","Physics","Chemistry","Programming","English"];
+const COL={Maths:"#7c5cd6",Physics:"#1f7ae0",Chemistry:"#d9822b",Programming:"#0f6b4f",English:"#c2437a"};
+const ICON={Maths:"➗",Physics:"⚛️",Chemistry:"🧪",Programming:"💻",English:"📖"};
+const HERO='<div class="hero"><h2>Got a doubt? Ask it without fear.</h2><p>No name, no judgment. Seniors and classmates are here to help.</p><div class="steps"><div class="step"><em>✏️</em>1. Post your doubt anonymously</div><div class="step"><em>🎓</em>2. A senior mentor answers</div><div class="step"><em>📊</em>3. See which topics to revise</div></div></div>';
+let tab="feed",uid=null,doubts=[],weak={},mentorMode=false,tapped=new Set(),busy=false;
+
+function esc(t){const d=document.createElement("div");d.textContent=t==null?"":t;return d.innerHTML}
+function showErr(t){document.getElementById("msg").innerHTML=t?'<div class="err">'+esc(t)+'</div>':""}
+
+signInAnonymously(auth).catch(e=>showErr("Could not sign in anonymously. Check that Anonymous sign-in is on in Firebase and this website is in Authorized domains. ("+e.code+")"));
+onAuthStateChanged(auth,u=>{
+  if(!u)return;uid=u.uid;
+  onSnapshot(query(collection(db,"doubts"),orderBy("createdAt","desc")),s=>{doubts=s.docs.map(d=>({id:d.id,...d.data()}));render()},e=>showErr("Could not load doubts. ("+e.code+")"));
+  onSnapshot(doc(db,"users",uid),s=>{weak=(s.data()||{}).weak||{};render()});
+});
+
+function card(d){
+  let h='<div class="card" style="--c:'+(COL[d.sub]||"#0f6b4f")+'"><div class="row"><div><span class="tag">'+(ICON[d.sub]||"📘")+" "+esc(d.sub)+'</span><span class="tag">'+esc(d.topic)+'</span></div><span class="anon">🕶️ Anonymous</span></div><div class="q">'+esc(d.q)+'</div>';
+  if(d.mentor)h+='<div class="box mentor"><b>🎓 ✔ Verified senior mentor</b>'+esc(d.mentor)+'</div>';
+  else if(mentorMode)h+='<textarea id="m'+d.id+'" rows="2" placeholder="Write your answer as a senior mentor"></textarea><button class="btn ghost" onclick="answer(\''+d.id+'\')">Post answer</button>';
+  else h+='<div class="box wait">🎓 A verified senior mentor will answer soon</div>';
+  const n=d.confused||0;
+  h+='<div class="row" style="margin-top:10px"><button class="btn ghost" '+(tapped.has(d.id)?"disabled":"")+' onclick="confused(\''+d.id+'\',\''+esc(d.topic).replace(/'/g,"")+'\')">😕 Still confused?</button><span class="anon">'+(n?n+" student"+(n>1?"s":"")+" still confused":"")+'</span></div></div>';
+  return h}
+
+window.post=async function(){
+  const q=document.getElementById("nq").value.trim(),sub=document.getElementById("ns").value;
+  const t=(document.getElementById("nt").value.trim()||"General").slice(0,30).replace(/[.\[\]~*\/]/g,"");
+  if(!q){alert("Type your doubt first");return}
+  if(!uid||busy)return;busy=true;
+  try{
+    await addDoc(collection(db,"doubts"),{sub:sub,topic:t,q:q.slice(0,500),uid:uid,confused:0,mentor:null,createdAt:serverTimestamp()});
+    await setDoc(doc(db,"users",uid),{weak:{[t]:increment(1)}},{merge:true});
+    showErr("");tab="feed";
+  }catch(e){showErr("Could not post your doubt. ("+e.code+")")}
+  busy=false;render()};
+window.confused=async function(id,topic){
+  if(!uid||tapped.has(id))return;tapped.add(id);render();
+  try{await updateDoc(doc(db,"doubts",id),{confused:increment(1)});
+      await setDoc(doc(db,"users",uid),{weak:{[topic]:increment(1)}},{merge:true})}catch(e){showErr("Could not save. ("+e.code+")")}};
+window.answer=async function(id){
+  const v=document.getElementById("m"+id).value.trim();if(!v)return;
+  try{await updateDoc(doc(db,"doubts",id),{mentor:v.slice(0,800)})}catch(e){showErr("Could not post answer. ("+e.code+")")}};
+window.go=function(t){tab=t;render()};
+window.toggleMentor=function(){mentorMode=!mentorMode;render()};
+
+function render(){
+  const v=document.getElementById("view");let h="";
+  if(tab==="feed"){
+    if(!doubts.length)h='<div class="box wait">No doubts yet. Be the first: tap Ask and post one anonymously.</div>';
+    doubts.forEach(d=>h+=card(d));
+  }else if(tab==="ask"){
+    h='<div class="card"><div class="h2">Ask your doubt</div><div class="lock">🔒 Your name is never shown. Classmates and seniors only see the question.</div><label>1. Subject</label><select id="ns">'+TAGS.map(t=>"<option>"+t+"</option>").join("")+'</select><label>2. Topic</label><input id="nt" placeholder="For example: Matrices"><label>3. Your doubt</label><textarea id="nq" rows="4" placeholder="Type it in your own words. No question is too small."></textarea><button class="btn big" onclick="post()">Post anonymously</button></div>';
+  }else{
+    const keys=Object.keys(weak).sort((a,b)=>weak[b]-weak[a]),max=keys.length?weak[keys[0]]:1;let tot=0;keys.forEach(k=>tot+=weak[k]);
+    h='<div class="stats"><div class="stat"><b>'+tot+'</b>doubts and “still confused” taps</div><div class="stat"><b>'+keys.length+'</b>topics to revisit</div></div><div class="card"><div class="h2">📊 Where to focus</div><div class="anon" style="margin-bottom:8px">A longer bar means more doubts in that topic. Revise those first.</div>';
+    if(!keys.length)h+='<div class="box wait">Nothing yet. Post a doubt to start your tracker.</div>';
+    keys.slice(0,5).forEach(k=>h+='<div class="row"><span>'+esc(k)+'</span><span class="anon">'+weak[k]+'</span></div><div class="bar"><i style="width:'+(weak[k]/max*100)+'%"></i></div>');
+    h+='</div><div class="card"><div class="row"><div><div class="q" style="margin:0">🎓 Try senior mentor mode</div><div class="anon">Demo only: switch on, then answer a doubt from the Feed</div></div><button class="chip'+(mentorMode?" on":"")+'" onclick="toggleMentor()">'+(mentorMode?"On":"Off")+'</button></div></div>';
+  }
+  v.innerHTML=h;document.getElementById("hero").innerHTML=tab==="feed"?HERO:"";
+  const n=[["feed","🏠","Feed"],["ask","✏️","Ask"],["me","📊","My progress"]];
+  document.getElementById("nav").innerHTML=n.map(x=>'<button class="'+(tab===x[0]?"on":"")+'" onclick="go(\''+x[0]+'\')"><span>'+x[1]+"</span>"+x[2]+"</button>").join("");
+}
+render();
+</script>
+</body>
+</html>
