@@ -56,16 +56,21 @@ nav button span{display:block;font-size:20px}nav button.on{color:var(--green);fo
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
 import {getAuth,signInAnonymously,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js";
+import {getAI,getGenerativeModel,GoogleAIBackend} from "https://www.gstatic.com/firebasejs/13.2.0/firebase-ai.js";
 import {getFirestore,collection,addDoc,onSnapshot,query,orderBy,doc,updateDoc,setDoc,increment,serverTimestamp} from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
 
 const firebaseConfig={apiKey:"AIzaSyDuPMOS2NZDlLl5FE9OlFa-RA-kXD49y98",authDomain:"askfree-e322d.firebaseapp.com",projectId:"askfree-e322d",storageBucket:"askfree-e322d.firebasestorage.app",messagingSenderId:"525415218168",appId:"1:525415218168:web:76a608780048507231b40d"};
 const app=initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app);
+// Firebase AI Logic: Gemini runs through Firebase, so no secret key sits in this file
+const ai=getAI(app,{backend:new GoogleAIBackend()});
+const MODELS=["gemini-3.5-flash","gemini-2.5-flash"]; // tries the first, falls back to the second
 
 const TAGS=["Maths","Physics","Chemistry","Programming","English"];
 const COL={Maths:"#7c5cd6",Physics:"#1f7ae0",Chemistry:"#d9822b",Programming:"#0f6b4f",English:"#c2437a"};
 const ICON={Maths:"➗",Physics:"⚛️",Chemistry:"🧪",Programming:"💻",English:"📖"};
-const HERO='<div class="hero"><h2>Got a doubt? Ask it without fear.</h2><p>No name, no judgment. Seniors and classmates are here to help.</p><div class="steps"><div class="step"><em>✏️</em>1. Post your doubt anonymously</div><div class="step"><em>🎓</em>2. A senior mentor answers</div><div class="step"><em>📊</em>3. See which topics to revise</div></div></div>';
-let tab="feed",uid=null,doubts=[],weak={},mentorMode=false,tapped=new Set(),busy=false;
+const HERO='<div class="hero"><h2>Got a doubt? Ask it without fear.</h2><p>No name, no judgment. Seniors and classmates are here to help.</p><div class="steps"><div class="step"><em>✏️</em>1. Post your doubt anonymously</div><div class="step"><em>🤖</em>2. Get an instant AI answer</div><div class="step"><em>🎓</em>3. A senior mentor confirms it</div></div></div>';
+let tab="feed",uid=null,doubts=[],weak={},mentorMode=false,tapped=new Set(),busy=false,pending=new Set(),langSel={};
+const LANGS=[["en","English"],["hi","हिन्दी"],["ta","தமிழ்"]];
 
 function esc(t){const d=document.createElement("div");d.textContent=t==null?"":t;return d.innerHTML}
 function showErr(t){document.getElementById("msg").innerHTML=t?'<div class="err">'+esc(t)+'</div>':""}
@@ -77,13 +82,61 @@ onAuthStateChanged(auth,u=>{
   onSnapshot(doc(db,"users",uid),s=>{weak=(s.data()||{}).weak||{};render()});
 });
 
+// ===== AI helpers =====
+// Sends a prompt to Gemini (through Firebase AI Logic) and expects JSON with keys en, hi, ta
+async function askAI(prompt){
+  let last;
+  for(const name of MODELS){
+    try{
+      const m=getGenerativeModel(ai,{model:name,generationConfig:{responseMimeType:"application/json"}});
+      const r=await m.generateContent(prompt);
+      const o=JSON.parse(r.response.text().replace(/```json|```/g,"").trim());
+      if(o.en&&o.hi&&o.ta)return {en:String(o.en),hi:String(o.hi),ta:String(o.ta)};
+      throw new Error("AI reply was not in the expected format");
+    }catch(e){last=e}
+  }
+  throw last;
+}
+const STYLE="You are a friendly tutor for first-year engineering students in India. Reply ONLY with JSON using the keys en, hi, ta. en is English, hi is Hindi in Devanagari script, ta is Tamil in Tamil script. Keep technical terms in English where students normally use them. ";
+// Main AI explanation: written once by the student who asked, then saved so everyone sees it
+window.genAI=async function(id,d){
+  d=d||doubts.find(x=>x.id===id);if(!d||pending.has(id))return;
+  pending.add(id);render();
+  try{
+    const o=await askAI(STYLE+"Explain the answer in 3 to 4 short, clear sentences. Subject: "+d.sub+". Topic: "+d.topic+". Student doubt: "+d.q);
+    await updateDoc(doc(db,"doubts",id),{ai:o});showErr("");
+  }catch(e){showErr("The AI could not answer right now. Please try again in a minute. ("+(e.code||e.message)+")")}
+  pending.delete(id);render()};
+// Simpler explanation: made the first time anyone taps "Still confused?"
+async function genSimple(id){
+  const d=doubts.find(x=>x.id===id);if(!d||d.simple||pending.has("s"+id))return;
+  pending.add("s"+id);render();
+  try{
+    const o=await askAI(STYLE+"The student is still confused by this explanation, so explain again much more simply in 2 to 3 sentences using a real-life analogy. Doubt: "+d.q+" Earlier explanation: "+(d.ai?d.ai.en:""));
+    await updateDoc(doc(db,"doubts",id),{simple:o});
+  }catch(e){showErr("The simpler explanation could not be made right now. ("+(e.code||e.message)+")")}
+  pending.delete("s"+id);render()}
+window.setLang=function(id,l){langSel[id]=l;render()};
+function aiBlock(d){
+  const l=langSel[d.id]||"en";let h="";
+  if(d.ai){
+    h+='<div class="anon" style="margin-top:8px">Answer language</div><div style="display:flex;gap:6px;margin:6px 0">'+LANGS.map(x=>'<button class="chip'+(x[0]===l?" on":"")+'" onclick="setLang(\''+d.id+'\',\''+x[0]+'\')">'+x[1]+"</button>").join("")+"</div>";
+    h+='<div class="box"><b>🤖 Instant AI explanation</b>'+esc(d.ai[l])+'<div class="anon" style="margin-top:6px">AI can make mistakes. Confirm with a senior mentor.</div></div>';
+    if(d.simple)h+='<div class="box"><b>💡 Simpler explanation</b>'+esc(d.simple[l])+"</div>";
+    else if(pending.has("s"+d.id))h+='<div class="box wait">💡 Making it simpler…</div>';
+  }else if(pending.has(d.id))h+='<div class="box wait">🤖 AI is thinking…</div>';
+  else if(d.uid===uid)h+='<button class="btn ghost" style="margin:8px 0" onclick="genAI(\''+d.id+'\')">🤖 Get AI explanation</button>';
+  else h+='<div class="box wait">🤖 AI explanation not ready yet</div>';
+  return h}
+
 function card(d){
   let h='<div class="card" style="--c:'+(COL[d.sub]||"#0f6b4f")+'"><div class="row"><div><span class="tag">'+(ICON[d.sub]||"📘")+" "+esc(d.sub)+'</span><span class="tag">'+esc(d.topic)+'</span></div><span class="anon">🕶️ Anonymous</span></div><div class="q">'+esc(d.q)+'</div>';
+  h+=aiBlock(d);
   if(d.mentor)h+='<div class="box mentor"><b>🎓 ✔ Verified senior mentor</b>'+esc(d.mentor)+'</div>';
   else if(mentorMode)h+='<textarea id="m'+d.id+'" rows="2" placeholder="Write your answer as a senior mentor"></textarea><button class="btn ghost" onclick="answer(\''+d.id+'\')">Post answer</button>';
   else h+='<div class="box wait">🎓 A verified senior mentor will answer soon</div>';
   const n=d.confused||0;
-  h+='<div class="row" style="margin-top:10px"><button class="btn ghost" '+(tapped.has(d.id)?"disabled":"")+' onclick="confused(\''+d.id+'\',\''+esc(d.topic).replace(/'/g,"")+'\')">😕 Still confused?</button><span class="anon">'+(n?n+" student"+(n>1?"s":"")+" still confused":"")+'</span></div></div>';
+  h+='<div class="row" style="margin-top:10px"><button class="btn ghost" '+(tapped.has(d.id)?"disabled":"")+' onclick="confused(\''+d.id+'\',\''+esc(d.topic).replace(/'/g,"")+'\')">😕 Still confused? Explain simpler</button><span class="anon">'+(n?n+" student"+(n>1?"s":"")+" still confused":"")+'</span></div></div>';
   return h}
 
 window.post=async function(){
@@ -92,7 +145,8 @@ window.post=async function(){
   if(!q){alert("Type your doubt first");return}
   if(!uid||busy)return;busy=true;
   try{
-    await addDoc(collection(db,"doubts"),{sub:sub,topic:t,q:q.slice(0,500),uid:uid,confused:0,mentor:null,createdAt:serverTimestamp()});
+    const ref=await addDoc(collection(db,"doubts"),{sub:sub,topic:t,q:q.slice(0,500),uid:uid,confused:0,mentor:null,createdAt:serverTimestamp()});
+    genAI(ref.id,{sub:sub,topic:t,q:q.slice(0,500)}); // start the AI answer in the background
     await setDoc(doc(db,"users",uid),{weak:{[t]:increment(1)}},{merge:true});
     showErr("");tab="feed";
   }catch(e){showErr("Could not post your doubt. ("+e.code+")")}
@@ -100,7 +154,8 @@ window.post=async function(){
 window.confused=async function(id,topic){
   if(!uid||tapped.has(id))return;tapped.add(id);render();
   try{await updateDoc(doc(db,"doubts",id),{confused:increment(1)});
-      await setDoc(doc(db,"users",uid),{weak:{[topic]:increment(1)}},{merge:true})}catch(e){showErr("Could not save. ("+e.code+")")}};
+      await setDoc(doc(db,"users",uid),{weak:{[topic]:increment(1)}},{merge:true});
+      genSimple(id)}catch(e){showErr("Could not save. ("+e.code+")")}};
 window.answer=async function(id){
   const v=document.getElementById("m"+id).value.trim();if(!v)return;
   try{await updateDoc(doc(db,"doubts",id),{mentor:v.slice(0,800)})}catch(e){showErr("Could not post answer. ("+e.code+")")}};
